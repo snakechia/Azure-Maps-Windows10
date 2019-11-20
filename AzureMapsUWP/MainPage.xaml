@@ -1,0 +1,696 @@
+﻿<Page
+    x:Class="AzureMapsUWP.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AzureMapsUWP"
+    xmlns:maps="using:Windows.UI.Xaml.Controls.Maps"
+    xmlns:loc="using:AzureMapsUWP.Helpers"
+    xmlns:azmaps="using:AzureMapsLite"
+    xmlns:controls="using:Microsoft.Toolkit.Uwp.UI.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    RequestedTheme="Dark"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+
+    <Page.Resources>
+
+        <!-- This Style adds the per-location buttons to the ListViewItem control template.
+             Using a control template is necessary here in order to enable the panel Visibility property 
+             to use TemplatedParent binding to the ListViewItem.IsSelected property. That way, the buttons
+             are shown or hidden depending on whether the item is selected. -->
+        <Style x:Key="PinnedLocationsViewItemStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Grid BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0,0,0,0.5" >
+                            <Border Background="Transparent" Opacity="0.9" >
+                                <StackPanel>
+                                    <ContentPresenter x:Name="Presenter"/>
+                                    <StackPanel Orientation="Horizontal" Background="White" VerticalAlignment="Center" RequestedTheme="Light" 
+                                                Visibility="{Binding IsSelected, RelativeSource={RelativeSource Mode=TemplatedParent}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <Button Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" Height="48" Width="48" Margin="0" BorderThickness="0" Background="Transparent" ToolTipService.ToolTip="Delete location" Foreground="Red" Click="DeleteLocation_Click" />
+                                        <Button Content="&#xE707;" FontFamily="Segoe MDL2 Assets" Height="48" Width="48" Margin="0" BorderThickness="0" Background="Transparent" ToolTipService.ToolTip="Show pinned location in Maps app" Click="ShowLocationButton_Click" />
+                                        <Button Content="&#xE816;" FontFamily="Segoe MDL2 Assets" Height="48" Width="48" Margin="0" BorderThickness="0" Background="Transparent" ToolTipService.ToolTip="Show route to location" Click="ShowRouteButton_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- This Style adds the pre-location buttons to the ListView control template.
+             Using a control template is necessary here in order to enable the panel Visibility property
+             to use TemplatedParent binding to the ListViewItem.IsSelected property. That way, the buttons
+             are shown or hidden depending on whether the item is selected. This style is for Nearby POIs location,
+             hence "Delete" button is not available, compare to "PinnedLocationsViewItemStyle". -->
+        <Style x:Key="NearbyLocationsViewItemStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Grid BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0,0,0,0.5" >
+                            <Border Background="Transparent" Opacity="0.9" >
+                                <StackPanel>
+                                    <ContentPresenter x:Name="Presenter"/>
+                                    <StackPanel Orientation="Horizontal" Background="White" VerticalAlignment="Center" RequestedTheme="Light" 
+                                                Visibility="{Binding IsSelected, RelativeSource={RelativeSource Mode=TemplatedParent}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <Button Content="&#xE707;" FontFamily="Segoe MDL2 Assets" Height="48" Width="48" Margin="0" BorderThickness="0" Background="Transparent" ToolTipService.ToolTip="Show pinned location in Maps app" Click="ShowLocationButton_Click" />
+                                        <Button Content="&#xE816;" FontFamily="Segoe MDL2 Assets" Height="48" Width="48" Margin="0" BorderThickness="0" Background="Transparent" ToolTipService.ToolTip="Show route to location" Click="ShowRouteButton_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- This DataTemplate provides the UI for the location data that appears in the list. This UI appears 
+             where the ContentPresenter is shown in the ListViewItem control template above. This DataTemplate 
+             also declares the editor as an attached flyout, which appears near the item being edited. -->
+        <DataTemplate x:Key="PinnedLocationTemplate" x:DataType="loc:LocationData">
+            <Grid MinHeight="60" Margin="-1,0,0,0" Padding="12,6" Background="White" RequestedTheme="Light" >
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontSize="12" />
+                <TextBlock Text="{x:Bind Address, Mode=OneWay}" FontSize="12" Grid.Row="1" TextTrimming="WordEllipsis" />
+                <TextBlock FontSize="12" Grid.Row="2" >
+                    <Run Text="{x:Bind Position.Latitude, Mode=OneWay, Converter={StaticResource StringFormatConverter}, ConverterParameter='{}{0:0.000000}'}" />
+                    <Run Text="{x:Bind Position.Longitude, Mode=OneWay, Converter={StaticResource StringFormatConverter}, ConverterParameter='{}{0:0.000000}'}" />
+                </TextBlock>
+            </Grid>
+        </DataTemplate>
+
+        <!-- This DataTemplate provides the UI for the locations as they appear in the MapControl. -->
+        <DataTemplate x:Key="PinnedMapItemTemplate" x:DataType="loc:LocationData">
+            <Grid>
+                <Grid.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Directions from" Click="SetDepartureWaypoint_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE816;" Foreground="LimeGreen" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Directions to" Click="SetArrivalWaypoint_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE816;" Foreground="Red" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+
+                        <MenuFlyoutSubItem Text="What's nearby">
+                            <MenuFlyoutSubItem.Icon>
+                                <FontIcon Glyph="&#xE721;" />
+                            </MenuFlyoutSubItem.Icon>
+                            <MenuFlyoutItem Text="Restaurants" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M11,9H9V2H7V9H5V2H3V9C3,11.12 4.66,12.84 6.75,12.97V22H9.25V12.97C11.34,12.84 13,11.12 13,9V2H11V9M16,6V14H18.5V22H21V2C18.24,2 16,4.24 16,6Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Attractions" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M15.58,16.8L12,14.5L8.42,16.8L9.5,12.68L6.21,10L10.46,9.74L12,5.8L13.54,9.74L17.79,10L14.5,12.68M20,12C20,10.89 20.9,10 22,10V6C22,4.89 21.1,4 20,4H4A2,2 0 0,0 2,6V10C3.11,10 4,10.9 4,12A2,2 0 0,1 2,14V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V14A2,2 0 0,1 20,12Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Malls" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M19 6H17C17 3.2 14.8 1 12 1S7 3.2 7 6H5C3.9 6 3 6.9 3 8V20C3 21.1 3.9 22 5 22H19C20.1 22 21 21.1 21 20V8C21 6.9 20.1 6 19 6M12 3C13.7 3 15 4.3 15 6H9C9 4.3 10.3 3 12 3M19 20H5V8H19V20M12 12C10.3 12 9 10.7 9 9H7C7 11.8 9.2 14 12 14S17 11.8 17 9H15C15 10.7 13.7 12 12 12Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Hotels" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M19,7H11V14H3V5H1V20H3V17H21V20H23V11A4,4 0 0,0 19,7M7,13A3,3 0 0,0 10,10A3,3 0 0,0 7,7A3,3 0 0,0 4,10A3,3 0 0,0 7,13Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Banks" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M6.5,10H4.5V17H6.5V10M12.5,10H10.5V17H12.5V10M21,19H2V21H21V19M18.5,10H16.5V17H18.5V10M11.5,3.26L16.71,6H6.29L11.5,3.26M11.5,1L2,6V8H21V6L11.5,1Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Hospitals" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M18 14H14V18H10V14H6V10H10V6H14V10H18M20 2H4C2.9 2 2 2.9 2 4V20C2 21.1 2.9 22 4 22H20C21.1 22 22 21.1 22 20V4C22 2.9 21.1 2 20 2M20 20H4V4H20V20Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Parking" Click="SearchByCategory_Click" >
+                                <MenuFlyoutItem.Icon>
+                                    <PathIcon Data="M13.2,11H10V7H13.2A2,2 0 0,1 15.2,9A2,2 0 0,1 13.2,11M13,3H6V21H10V15H13A6,6 0 0,0 19,9C19,5.68 16.31,3 13,3Z" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyoutSubItem>
+                        
+                    </MenuFlyout>
+                </Grid.ContextFlyout>
+
+                <!-- The geopoint icon is used for the current location. -->
+                <TextBlock Text="&#xE81D;" FontFamily="Segoe MDL2 Assets" FontSize="20" Foreground="Red"
+                           Visibility="{x:Bind IsCurrentLocation, Converter={StaticResource BoolToVisibilityConverter}}"
+                           maps:MapControl.Location="{x:Bind Geopoint, Mode=OneWay}" 
+                           maps:MapControl.NormalizedAnchorPoint="{x:Bind NormalizedAnchorPoint, Mode=OneWay}"/>
+
+                <!-- The geopoint icon for selected locations. -->
+                <TextBlock Text="&#xE81D;" FontFamily="Segoe MDL2 Assets" FontSize="20" Foreground="{x:Bind PinColor, Mode=OneWay}"
+                           Visibility="{x:Bind IsCurrentLocation, Converter={StaticResource BoolToInvertVisibilityConverter}}"
+                           maps:MapControl.Location="{x:Bind Geopoint, Mode=OneWay}" 
+                           maps:MapControl.NormalizedAnchorPoint="{x:Bind NormalizedAnchorPoint, Mode=OneWay}"/>
+
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="RouteWaypointTemplate" x:DataType="loc:LocationData">
+            <Grid BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0,0,0,0.5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="48" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="48" />
+                </Grid.ColumnDefinitions>
+
+                <Viewbox Width="24" Height="24" Margin="-26,0,0,0">
+                    <Canvas Width="24" Height="24">
+                        <Path Fill="WhiteSmoke" Data="M9,3H11V5H9V3M13,3H15V5H13V3M9,7H11V9H9V7M13,7H15V9H13V7M9,11H11V13H9V11M13,11H15V13H13V11M9,15H11V17H9V15M13,15H15V17H13V15M9,19H11V21H9V19M13,19H15V21H13V19Z" />
+                    </Canvas>
+                </Viewbox>
+
+                <TextBlock Grid.Column="1" Text="{x:Bind Name, Mode=OneWay}" TextTrimming="WordEllipsis" VerticalAlignment="Center" />
+
+                <Button Content="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" 
+                        Foreground="WhiteSmoke" Background="Transparent" Grid.Column="2" Click="RemoveWaypointButton_Click" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="AutoSuggestionBoxSearchItemTemplate">
+            <Grid Height="48" Padding="12,6" BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0, 0, 0, 0.5" VerticalAlignment="Stretch">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="{Binding poi.name, Mode=OneWay}" FontSize="12" FontWeight="Thin" TextTrimming="WordEllipsis" Visibility="{Binding poi, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}" />
+                <TextBlock Text="{Binding address.freeformAddress, Mode=OneWay}" FontSize="12" FontWeight="Thin" TextTrimming="WordEllipsis" Grid.Row="1" VerticalAlignment="Center" />
+
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="RouteDataTemplate" x:DataType="loc:RouteData">
+            <Grid MinHeight="60" BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0,0,0,0.5">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="60" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="48" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="48" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="18" FontWeight="Thin" HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                    <Grid Grid.Column="1" VerticalAlignment="Center">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{x:Bind Route.summary.lengthInMeters, Mode=OneWay, Converter={StaticResource TravelDistanceConverter}}" FontSize="16" />
+                                <TextBlock FontWeight="Thin" FontSize="12" VerticalAlignment="Bottom" Visibility="{x:Bind IsLeaveNow, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <Run Text=" with" />
+                                    <Run Text="{x:Bind Route.summary.trafficDelayInSeconds, Mode=OneWay, Converter={StaticResource TravelTimeConverter}}" />
+                                    <Run Text="{x:Bind Route.summary.trafficDelayInSeconds, Mode=OneWay, Converter={StaticResource TravelTimeLabelConverter}}" />
+                                </TextBlock>
+                            </StackPanel>
+
+                            <TextBlock Text="{x:Bind ArriveByMessage, Mode=OneWay}" FontSize="14" FontWeight="Thin" Visibility="{x:Bind IsArriveBy, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            <TextBlock Text="{x:Bind LeaveAtMessage, Mode=OneWay}" FontSize="14" FontWeight="Thin" Visibility="{x:Bind IsLeaveAt, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                        <TextBlock Text="{x:Bind Route.summary.liveTrafficIncidentsTravelTimeInSeconds, Mode=OneWay, Converter={StaticResource TravelTimeConverter}}" FontWeight="Thin" HorizontalAlignment="Center" />
+                        <TextBlock Text="{x:Bind Route.summary.liveTrafficIncidentsTravelTimeInSeconds, Mode=OneWay, Converter={StaticResource TravelTimeLabelConverter}}" FontSize="12" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+
+                <Button Content="{x:Bind ShowButtonLabel, Mode=OneWay}" Grid.Row="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent"
+                        BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0,0.5"
+                        Visibility="{x:Bind IsSelected, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                        Height="32" FontSize="12" FontWeight="Thin" Click="MoreRouteDirectionDetails_Click" />
+
+                <ListView Grid.Row="2" Visibility="{x:Bind IsShowed, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" ItemTemplate="{StaticResource RouteDataDetailsTemplate}"
+                          ItemContainerStyle="{StaticResource BasicListViewItemStyle}" ItemsSource="{x:Bind Route.guidance.instructions, Mode=OneWay}">
+                    <ListView.Header>
+                        <Grid Height="60" Margin="0,0,0,-2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="48" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid Grid.Column="1">
+                                <Line X1="0" X2="0" Y1="0" Y2="30" StrokeThickness="3" Stroke="Gray" Fill="Gray" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+                                <Ellipse Width="30" Height="30" Fill="Green" Stroke="White" StrokeThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+
+                            <TextBlock Text="{x:Bind StartLocationLable, Mode=OneWay}" FontSize="14" FontWeight="Thin" TextWrapping="Wrap" Grid.Column="2" Margin="3,0" VerticalAlignment="Center" />
+                        </Grid>
+                    </ListView.Header>
+
+                    <ListView.Footer>
+                        <Grid Height="60" Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="48" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid Grid.Column="1">
+                                <Line X1="0" X2="0" Y1="0" Y2="30" StrokeThickness="3" Stroke="Gray" Fill="Gray" HorizontalAlignment="Center" VerticalAlignment="Top" />
+                                <Ellipse Width="30" Height="30" Fill="Red" Stroke="White" StrokeThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+
+                            <TextBlock Text="{x:Bind EndLocationLabel, Mode=OneWay}" FontSize="14" FontWeight="Thin" TextWrapping="Wrap" Grid.Column="2" Margin="3,0" VerticalAlignment="Center" />
+                        </Grid>
+                    </ListView.Footer>
+                </ListView>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="RouteDataDetailsTemplate">
+            <Grid Height="60">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="60" />
+                    <ColumnDefinition Width="48" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="{Binding routeOffsetInMeters, Mode=OneWay, Converter={StaticResource TravelDistanceConverter}}"
+                                           Margin="12,6" VerticalAlignment="Bottom" HorizontalAlignment="Left" FontSize="10" FontWeight="Thin" />
+
+                <Grid Grid.Column="1">
+                    <Line X1="0" X2="0" Y1="0" Y2="60" StrokeThickness="3" Stroke="Gray" Fill="Gray" HorizontalAlignment="Center" />
+                    <Ellipse Width="30" Height="30" Fill="Gray" Stroke="White" StrokeThickness="1" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,6,0,0" />
+
+                </Grid>
+
+                <TextBlock Text="{Binding message, Mode=OneWay}" FontSize="14" FontWeight="Thin" TextWrapping="Wrap" Grid.Column="2" Margin="3,6" />
+            </Grid>
+        </DataTemplate>
+
+        
+    </Page.Resources>
+
+    <Grid>
+        <maps:MapControl Style="None" x:Name="MyMap" MapHolding="MyMap_MapHolding" MapRightTapped="MyMap_MapRightTapped"
+                         ZoomInteractionMode="Auto" TiltInteractionMode="Auto" PanInteractionMode="Auto" RotateInteractionMode="Auto" >
+            <maps:MapItemsControl ItemTemplate="{StaticResource PinnedMapItemTemplate}" ItemsSource="{x:Bind MappedLocations}"/>
+        </maps:MapControl>
+
+        <Grid Margin="24,24" Width="400" Height="48" HorizontalAlignment="Left" VerticalAlignment="Top" Background="#FF0D1526"
+              BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0.75" CornerRadius="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="48" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="48" />
+            </Grid.ColumnDefinitions>
+
+            <Button x:Name="menuBtn" Content="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="White" Background="Transparent" Click="OpenMainMenu_Click" />
+            <AutoSuggestBox x:Name="mainSearchBox" Grid.Column="1" Style="{StaticResource AzMapsAutoSuggestBoxStyle}" VerticalAlignment="Stretch" PlaceholderText="Search Azure Maps" Foreground="White" BorderThickness="0"
+                            TextChanged="searchBox_TextChanged" ItemContainerStyle="{StaticResource BasicListViewItemStyle}" ItemTemplate="{StaticResource AutoSuggestionBoxSearchItemTemplate}"
+                            Tag="main" SuggestionChosen="searchBox_SuggestionChosen" />
+
+            <Button x:Name="directionBtn" Content="&#xE816;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="White" Background="Transparent" Grid.Column="2" Click="directionBtn_Click" />
+        </Grid>
+
+        <controls:Expander x:Name="PinnedLocationExpander" Header="Pinned Locations" Margin="24,84,24,48" Width="400" VerticalAlignment="Top" HorizontalAlignment="Left" 
+                           Style="{StaticResource AzMapsPinnedLocationExpander}" HeaderStyle="{StaticResource AzMapsPinnedLocationsHeaderToggleButtonStyle}"
+                           Visibility="Collapsed" IsExpanded="True">
+            <ListView x:Name="PinnedLocationListView" Grid.Row="1" Background="{StaticResource AzureMapsAcrylicBackgroundBrush}" ItemsSource="{x:Bind Locations}" Width="400" HorizontalAlignment="Left"
+                              ItemTemplate="{StaticResource PinnedLocationTemplate}" ItemContainerStyle="{StaticResource PinnedLocationsViewItemStyle}" VerticalAlignment="Top"
+                              SelectionMode="Single" SelectedItem="{x:Bind SelectedLocation, Mode=TwoWay}" CornerRadius="0,0,6,6" />
+        </controls:Expander>
+
+        <Grid x:Name="NearbyLocationExpander" Margin="24,84,24,48" Width="400" VerticalAlignment="Top" HorizontalAlignment="Left" Visibility="Collapsed" >
+            <controls:Expander  Header="Nearby Locations" Width="400" VerticalAlignment="Top" HorizontalAlignment="Left" 
+                           Style="{StaticResource AzMapsPinnedLocationExpander}" HeaderStyle="{StaticResource AzMapsNearbyLocationsHeaderToggleButtonStyle}"
+                           IsExpanded="True">
+                <ListView x:Name="NearbyLocationListView" Grid.Row="1" Background="{StaticResource AzureMapsAcrylicBackgroundBrush}" ItemsSource="{x:Bind NearbyLocations}" Width="400" HorizontalAlignment="Left"
+                              ItemTemplate="{StaticResource PinnedLocationTemplate}" ItemContainerStyle="{StaticResource NearbyLocationsViewItemStyle}" VerticalAlignment="Top"
+                              SelectionMode="Single" SelectedItem="{x:Bind SelectedLocation, Mode=TwoWay}" CornerRadius="0,0,6,6" />
+            </controls:Expander>
+
+            <Button Content="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="18" Width="48" Height="48" BorderThickness="0" 
+                    HorizontalAlignment="Right" VerticalAlignment="Top" CornerRadius="0,6,6,0" Background="Red"
+                    Click="ClearNearbyLocation_Click" />
+        </Grid>
+        
+        <SplitView x:Name="RouteDirectionSplitView" Margin="24" Width="400" Background="Transparent" OpenPaneLength="400" DisplayMode="Inline" 
+                   PaneBackground="Transparent" HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="{x:Bind RouteDirectionSplitView.IsPaneOpen, Mode=OneWay}">
+            <SplitView.Pane>
+                <Grid CornerRadius="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Background="#FF3367d6" CornerRadius="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="48" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="48" />
+                        </Grid.ColumnDefinitions>
+
+                        <Button Content="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="White" Background="Transparent" Click="OpenMainMenu_Click" />
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <ToggleButton x:Name="driveButton" Content="&#xE804;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="White" Background="Transparent" Click="TravelMode_Click" IsChecked="True" />
+                            <ToggleButton x:Name="busButton" Content="&#xE806;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0.5,0" Foreground="White" Background="Transparent" Click="TravelMode_Click" />
+                            <ToggleButton x:Name="walkButton" Content="&#xE805;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="White" Background="Transparent" Click="TravelMode_Click" />
+                        </StackPanel>
+
+                        <Button Content="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="White" Background="Red" Grid.Column="2"
+                                Click="CloseRouteDirectionGrid_Click"/>
+
+                    </Grid>
+
+                    <StackPanel Background="#FF4285f4" Margin="0,12,0,0" Grid.Row="1" CornerRadius="6,6,0,0" >
+                        <ListView ItemsSource="{x:Bind RouteWaypoints}" ItemTemplate="{StaticResource RouteWaypointTemplate}" ItemContainerStyle="{StaticResource BasicListViewItemStyle}" 
+                                  SelectionMode="Single" CanReorderItems="True" AllowDrop="True" 
+                                  BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0, 0.75, 0, 0" />
+
+                        <Grid x:Name="AddRouteWayPointGrid" Height="48" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="48" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="48" />
+                            </Grid.ColumnDefinitions>
+
+                            <AutoSuggestBox x:Name="WayPointSearch" Grid.Column="1" Style="{StaticResource AzMapsAutoSuggestBoxStyle}" VerticalAlignment="Stretch" Foreground="White" BorderThickness="0" 
+                                            ItemContainerStyle="{StaticResource BasicListViewItemStyle}" ItemTemplate="{StaticResource AutoSuggestionBoxSearchItemTemplate}" SuggestionChosen="searchBox_SuggestionChosen"
+                                            Tag="waypoint" TextChanged="searchBox_TextChanged" />
+                            <Button Content="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="18" Height="48" Width="48" BorderThickness="0" Foreground="WhiteSmoke" Background="Transparent" Grid.Column="2" Click="CloseAddRouteWayPointGrid_Click" />
+                        </Grid>
+
+                        <Grid x:Name="AddRouteWayPointButtonGrid" Height="48">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Button Height="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Click="ShowAddRouteWayPointGrid_Click">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Text="&#xECC8;" FontSize="16" FontFamily="Segoe MDL2 Assets" Margin="6,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Add destination" FontWeight="Thin" Grid.Column="1" />
+                                </Grid>
+                            </Button>
+                        </Grid>
+
+                        <Grid Height="48" BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0, 0.75, 0, 0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="3*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Button x:Name="SetTimeButton" Foreground="White" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Height="48" Background="Transparent"
+                                    BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0.75,0" Click="SetTimeButton_Click" >
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Text="&#xED5A;" FontFamily="Segoe MDL2 Assets" Margin="6,0,12,0" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SetTimeStatusTextBox" Text="Leave now" FontSize="11" FontWeight="Thin" Grid.Column="1" VerticalAlignment="Center" />
+                                </Grid>
+                            </Button>
+
+                            <Button x:Name="SetAvoidOptionButton" Grid.Column="1" Foreground="White" HorizontalAlignment="Stretch" Height="48" Background="Transparent" 
+                                    BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0.75,0" >
+                                <Button.Flyout>
+                                    <Flyout Closed="SetAvoidOptionFlyout_Closed">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="*" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.ColumnSpan="2" Margin="0,0,0,6">
+                                                <TextBlock Text="Specifies something that the route" FontWeight="Thin" />
+                                                <TextBlock Text="calculation should try to avoid" FontWeight="Thin" />
+                                            </StackPanel>
+                                            
+                                            <CheckBox x:Name="borderCrossingsCB" Content="Border Crossings" Grid.Row="1" FontWeight="Thin" Padding="6,6,12,6" />
+                                            <CheckBox x:Name="carpoolsCB" Content="Car Pools" Grid.Row="2" FontWeight="Thin" Padding="6,6,12,6" />
+                                            <CheckBox x:Name="ferriesCB" Content="Ferries" Grid.Row="3" FontWeight="Thin" Padding="6,6,12,6" />
+
+                                            <CheckBox x:Name="motorwaysCB" Content="Motorways" Grid.Row="1" Grid.Column="1" FontWeight="Thin" Padding="6,6,12,6" />
+                                            <CheckBox x:Name="tollRoadsCB" Content="Toll Roads" Grid.Row="2" Grid.Column="1" FontWeight="Thin" Padding="6,6,12,6" />
+                                            <CheckBox x:Name="unpavedRoadsCB" Content="Unpaved Roads" Grid.Row="3" Grid.Column="1" FontWeight="Thin" Padding="6,6,12,6" />
+                                        </Grid>
+                                    </Flyout>
+                                </Button.Flyout>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Text="Set Avoids" FontSize="11" FontWeight="Thin" Grid.Column="1" />
+                                </Grid>
+                            </Button>
+                            
+                            <Button x:Name="GoButton" Grid.Column="2" Content="Go" Foreground="White" HorizontalAlignment="Stretch" Height="48" Background="Transparent" 
+                                    BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0.75,0"
+                                    IsEnabled="False" Click="GoButton_Click" />
+                        </Grid>
+
+                        <Grid x:Name="TravelTimeOptionGrid" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <ToggleButton x:Name="leaveNowButton" Content="Leave now" Grid.Column="0" HorizontalAlignment="Stretch" Height="48" BorderThickness="0.5" Style="{StaticResource ToggleButtonRevealStyle}" Click="ChangeTravelTime_Click" IsChecked="True" />
+                                <ToggleButton x:Name="leaveatButton" Content="Leave at" Grid.Column="1" HorizontalAlignment="Stretch" Height="48" BorderThickness="0.5" Style="{StaticResource ToggleButtonRevealStyle}" Click="ChangeTravelTime_Click" />
+                                <ToggleButton x:Name="arrivebyButton" Content="Arrive by" Grid.Column="2" HorizontalAlignment="Stretch" Height="48" BorderThickness="0.5" Style="{StaticResource ToggleButtonRevealStyle}" Click="ChangeTravelTime_Click" />
+                            </Grid>
+
+                            <Grid x:Name="datetimeSelectionGrid" Grid.Row="1" Visibility="Collapsed">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="48" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TimePicker Grid.Row="0" HorizontalAlignment="Stretch" BorderThickness="0" Name="timePicker" VerticalAlignment="Center" Background="Transparent" TimeChanged="timePicker_TimeChanged" />
+                                <CalendarView x:Name="calendarView" Grid.Row="1" HorizontalAlignment="Stretch" BorderThickness="0" Background="Transparent" SelectedDatesChanged="calendarView_SelectedDatesChanged"
+                                              SelectionMode="Single" IsOutOfScopeEnabled="True" NumberOfWeeksInView="2" />
+                            </Grid>
+                        </Grid>
+
+                    </StackPanel>
+
+                    <ListView Grid.Row="2" ItemsSource="{x:Bind RouteDatas, Mode=OneWay}" Background="{StaticResource AzureMapsAcrylicBackgroundBrush}" SelectionMode="Single" SelectedItem="{x:Bind SelectedRouteData, Mode=TwoWay}"
+                              ItemTemplate="{StaticResource RouteDataTemplate}" ItemContainerStyle="{StaticResource BasicListViewItemStyle}" />
+                </Grid>
+            </SplitView.Pane>
+        </SplitView>
+
+        <SplitView x:Name="MainMenuSplitView" Margin="24,84,24,24" Width="400" Background="Transparent" OpenPaneLength="400" 
+                   PaneBackground="Transparent" HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                   IsHitTestVisible="{x:Bind MainMenuSplitView.IsPaneOpen, Mode=OneWay}">
+            <SplitView.Pane>
+                <Grid Background="{StaticResource AzureMapsAcrylicBackgroundBrush}" CornerRadius="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+
+                        <ToggleButton x:Name="BasicMapTileButton" Height="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" IsChecked="True" 
+                                  BorderThickness="0" Click="ChangeMapTile_Click">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <Viewbox Width="24" Height="24">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Fill="White" Data="M20.5,3L20.34,3.03L15,5.1L9,3L3.36,4.9C3.15,4.97 3,5.15 3,5.38V20.5A0.5,0.5 0 0,0 3.5,21L3.66,20.97L9,18.9L15,21L20.64,19.1C20.85,19.03 21,18.85 21,18.62V3.5A0.5,0.5 0 0,0 20.5,3M10,5.47L14,6.87V18.53L10,17.13V5.47M5,6.46L8,5.45V17.15L5,18.31V6.46M19,17.54L16,18.55V6.86L19,5.7V17.54Z" />
+                                    </Canvas>
+                                </Viewbox>
+
+                                <TextBlock Grid.Column="1" Text="Road View" />
+                            </Grid>
+                        </ToggleButton>
+
+                        <ToggleButton x:Name="SatelliteImageTileButton" Height="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent"
+                                  BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0, 0, 0, 0.75"
+                                  Click="ChangeMapTile_Click">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <Viewbox Width="24" Height="24">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Fill="White" Data="M5,18L8.5,13.5L11,16.5L14.5,12L19,18M5,12V10A5,5 0 0,0 10,5H12A7,7 0 0,1 5,12M5,5H8A3,3 0 0,1 5,8M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z" />
+                                    </Canvas>
+                                </Viewbox>
+
+                                <TextBlock Grid.Column="1" Text="Aerial View" VerticalAlignment="Center" />
+
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="12,0">
+                                    <TextBlock Text="Show Labels" VerticalAlignment="Center" />
+                                    <ToggleSwitch x:Name="showLabelToggleSwitch" Grid.Column="1" Width="80" Margin="12,0,0,0" Style="{StaticResource AzMapsToggleSwitchStyle}"
+                                              IsEnabled="{x:Bind SatelliteImageTileButton.IsChecked.Value, Mode=OneWay}" Toggled="showLabelToggleSwitch_Toggled" />
+                                </StackPanel>
+                            </Grid>
+                        </ToggleButton>
+
+                        <ToggleButton x:Name="TrafficTileButton" Height="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Click="TrafficTileButton_Click">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <Viewbox Width="24" Height="24">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Fill="White" Data="M12,9A2,2 0 0,1 10,7C10,5.89 10.9,5 12,5C13.11,5 14,5.89 14,7A2,2 0 0,1 12,9M12,14A2,2 0 0,1 10,12C10,10.89 10.9,10 12,10C13.11,10 14,10.89 14,12A2,2 0 0,1 12,14M12,19A2,2 0 0,1 10,17C10,15.89 10.9,15 12,15C13.11,15 14,15.89 14,17A2,2 0 0,1 12,19M20,10H17V8.86C18.72,8.41 20,6.86 20,5H17V4A1,1 0 0,0 16,3H8A1,1 0 0,0 7,4V5H4C4,6.86 5.28,8.41 7,8.86V10H4C4,11.86 5.28,13.41 7,13.86V15H4C4,16.86 5.28,18.41 7,18.86V20A1,1 0 0,0 8,21H16A1,1 0 0,0 17,20V18.86C18.72,18.41 20,16.86 20,15H17V13.86C18.72,13.41 20,11.86 20,10Z" />
+                                    </Canvas>
+                                </Viewbox>
+
+                                <TextBlock Grid.Column="1" Text="Show Traffic" />
+                            </Grid>
+                        </ToggleButton>
+
+                        <ToggleButton x:Name="TrafficIncidentTileButton" Height="48" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent"
+                                  BorderBrush="{ThemeResource SystemControlBackgroundListMediumRevealBorderBrush}" BorderThickness="0, 0, 0, 0.75" Click="TrafficIncidentTileButton_Click">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <Viewbox Width="24" Height="24">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Fill="White" Data="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16" />
+                                    </Canvas>
+                                </Viewbox>
+
+                                <TextBlock Grid.Column="1" Text="Traffic Incidents" />
+
+                            </Grid>
+                        </ToggleButton>
+
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1">
+                        <controls:Expander Header="Settings" HorizontalContentAlignment="Left" IsExpanded="False" ExpandDirection="Up" 
+                                           HeaderStyle="{StaticResource AzMapsSettingsHeaderToggleButtonStyle}">
+
+                            <StackPanel Width="400">
+
+                                <ComboBox x:Name="RouteOptionsCountComboBox" Header="Number of desired alternative routes" Height="60" Margin="6"
+                                          HorizontalAlignment="Stretch" BorderThickness="0.75" SelectionChanged="Settings_SelectionChanged">
+                                    <ComboBoxItem Content="0" />
+                                    <ComboBoxItem Content="1" IsSelected="True" />
+                                    <ComboBoxItem Content="2" />
+                                    <ComboBoxItem Content="3" />
+                                    <ComboBoxItem Content="4" />
+                                    <ComboBoxItem Content="5" />
+                                </ComboBox>
+
+                                <ComboBox x:Name="LanguageComboBox" Header="Language of the guidance messages" Height="60" Margin="6"
+                                          HorizontalAlignment="Stretch" BorderThickness="0.75" SelectionChanged="Settings_SelectionChanged">
+                                    <ComboBoxItem Content="Chinese (Traditional)" Tag="zh-TW" />
+                                    <ComboBoxItem Content="English (USA)" Tag="en-US" IsSelected="True" />
+                                    <ComboBoxItem Content="English (Great Britain)" Tag="en-GB" />
+                                    <ComboBoxItem Content="German" Tag="de-DE" />
+                                    <ComboBoxItem Content="Malay" Tag="ms-MY" />
+                                </ComboBox>
+
+                            </StackPanel>
+
+                        </controls:Expander>
+
+
+                    </StackPanel>
+                </Grid>
+            </SplitView.Pane>
+        </SplitView>
+
+        <Grid Height="320" Margin="0,0,34,0" HorizontalAlignment="Right" VerticalAlignment="Center">
+            <Button x:Name="centerMeButton" Style="{StaticResource AzMapsButtonStyle}" Background="#FF2B2B2B" Height="36" Width="36" BorderThickness="2" BorderBrush="Gray" 
+                Content="&#xE81D;" FontFamily="Segoe MDL2 Assets" CornerRadius="24" VerticalAlignment="Bottom"
+                Click="CenterMeButton_Click" />
+        </Grid>
+
+        <controls:InAppNotification x:Name="NoGeolocatorAccess" Grid.Row="1" ShowDismissButton="False">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="48" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center" />
+
+                <TextBlock Text="Location Service Not Available. Please change the settings from your Settings. Some features are currently not available." Foreground="White" VerticalAlignment="Center" 
+                           TextWrapping="Wrap" Grid.Column="1" />
+                
+            </Grid>
+        </controls:InAppNotification>
+
+        <controls:InAppNotification x:Name="NoInternetWarningNotification" Grid.Row="1" Background="Red" ShowDismissButton="False">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="48" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center" />
+
+                <TextBlock Text="Internet Connection Not Available. Please check your internet connection." Foreground="White" VerticalAlignment="Center" 
+                           TextWrapping="Wrap" Grid.Column="1" />
+            </Grid>
+        </controls:InAppNotification>
+    
+    </Grid>
+</Page>
